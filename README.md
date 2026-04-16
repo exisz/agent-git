@@ -30,6 +30,14 @@ You've cloned the same repo twice. Maybe three times. They're scattered across `
 ## Install
 
 ```bash
+# One-liner (recommended)
+curl -fsSL https://raw.githubusercontent.com/exisz/agent-git/master/install.sh | sh
+
+# Homebrew
+brew tap exisz/tap
+brew install agent-git
+
+# Cargo
 cargo install agent-git
 ```
 
