@@ -1,0 +1,20 @@
+[package]
+name = "agent-git"
+version = "0.1.0"
+edition = "2021"
+description = "A git wrapper that tracks cloned repos and prevents duplicate clones"
+license = "MIT"
+repository = "https://github.com/exisz/agent-git"
+homepage = "https://github.com/exisz/agent-git"
+keywords = ["git", "clone", "cli", "wrapper", "repository"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+
+[dev-dependencies]
+tempfile = "3"
