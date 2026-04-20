@@ -46,8 +46,8 @@ impl Registry {
 
     /// Save to a specific path (useful for testing).
     pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
-        let content =
-            toml::to_string_pretty(self).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         fs::write(path, content)
     }
 

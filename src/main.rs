@@ -103,8 +103,18 @@ fn main() -> ExitCode {
 
     // Known subcommands we handle
     let known = [
-        "clone", "list", "whereis", "register", "unregister", "scan", "alias", "help", "--help",
-        "-h", "--version", "-V",
+        "clone",
+        "list",
+        "whereis",
+        "register",
+        "unregister",
+        "scan",
+        "alias",
+        "help",
+        "--help",
+        "-h",
+        "--version",
+        "-V",
     ];
 
     if !known.contains(&first_arg.as_str()) {
@@ -123,10 +133,7 @@ fn main() -> ExitCode {
                 println!("No repositories tracked. Use 'agent-git clone' or 'agent-git scan' to add repos.");
                 return ExitCode::SUCCESS;
             }
-            println!(
-                "{:<50} {:<50} {}",
-                "REPOSITORY", "PATH", "CLONED AT"
-            );
+            println!("{:<50} {:<50} {}", "REPOSITORY", "PATH", "CLONED AT");
             println!("{}", "-".repeat(130));
             for repo in &registry.repos {
                 println!(

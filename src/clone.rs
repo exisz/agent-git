@@ -27,11 +27,7 @@ pub fn handle_clone(url: &str, dest: Option<&str>) -> ExitCode {
         Some(d) => d.to_string(),
         None => {
             // Extract repo name from URL for default path
-            normalized
-                .rsplit('/')
-                .next()
-                .unwrap_or("repo")
-                .to_string()
+            normalized.rsplit('/').next().unwrap_or("repo").to_string()
         }
     };
 
@@ -65,7 +61,10 @@ pub fn handle_clone(url: &str, dest: Option<&str>) -> ExitCode {
             if let Err(e) = registry.register(normalized, abs_path) {
                 eprintln!("warning: Clone succeeded but failed to register: {}", e);
             } else if let Err(e) = registry.save() {
-                eprintln!("warning: Clone succeeded but failed to save registry: {}", e);
+                eprintln!(
+                    "warning: Clone succeeded but failed to save registry: {}",
+                    e
+                );
             } else {
                 eprintln!("agent-git: Registered in ~/.agentgit");
             }

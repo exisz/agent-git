@@ -1,0 +1,9 @@
+id: dna://tool/agent-git
+type: tool
+title: agent-git — Git wrapper CLI (Rust)
+description: Rust CLI git wrapper that tracks cloned repos and prevents duplicate clones.
+command: agent-git
+package_name: agent-git
+homepage: https://github.com/exisz/agent-git
+status: active
+managed_by: dna://agent/nebula

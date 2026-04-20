@@ -35,7 +35,11 @@ pub fn find_real_git() -> Option<String> {
     }
 
     // Fallback: try common locations
-    for path in &["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"] {
+    for path in &[
+        "/usr/bin/git",
+        "/usr/local/bin/git",
+        "/opt/homebrew/bin/git",
+    ] {
         if std::path::Path::new(path).exists() {
             if let Ok(candidate) = std::fs::canonicalize(path) {
                 if candidate != self_path {
