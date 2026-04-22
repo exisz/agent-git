@@ -1,5 +1,6 @@
 mod alias;
 mod clone;
+mod install;
 mod normalize;
 mod passthrough;
 mod registry;
@@ -59,7 +60,26 @@ enum Commands {
         dir: Option<String>,
     },
 
-    /// Manage shell alias (git → agent-git)
+    /// Install symlink at <PATH-dir>/git so EVERY shell intercepts git
+    /// (interactive AND non-interactive subagent shells). Recommended.
+    Install {
+        /// Force overwrite if a non-agent-git `git` already exists in target dir.
+        #[arg(long)]
+        force: bool,
+        /// Install into this directory instead of auto-picking.
+        #[arg(long)]
+        dir: Option<String>,
+    },
+    /// Remove the agent-git symlink from PATH directories.
+    Uninstall {
+        #[arg(long)]
+        dir: Option<String>,
+    },
+    /// Diagnose install state (PATH ordering, symlink presence, interception).
+    Doctor,
+
+    /// [DEPRECATED] Manage shell alias (git → agent-git). Aliases do NOT
+    /// affect non-interactive shells; use `install` instead.
     Alias {
         #[command(subcommand)]
         action: AliasAction,
@@ -109,6 +129,9 @@ fn main() -> ExitCode {
         "register",
         "unregister",
         "scan",
+        "install",
+        "uninstall",
+        "doctor",
         "alias",
         "help",
         "--help",
@@ -255,7 +278,24 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
 
+        Some(Commands::Install { force, dir }) => {
+            install::install(dir, force);
+            ExitCode::SUCCESS
+        }
+        Some(Commands::Uninstall { dir }) => {
+            install::uninstall(dir);
+            ExitCode::SUCCESS
+        }
+        Some(Commands::Doctor) => {
+            install::doctor();
+            ExitCode::SUCCESS
+        }
+
         Some(Commands::Alias { action }) => {
+            eprintln!("⚠️  `agent-git alias` is DEPRECATED.");
+            eprintln!("   Shell aliases do NOT affect non-interactive shells (bash -c, scripts, AI agents).");
+            eprintln!("   Use `agent-git install` for true PATH-level interception.");
+            eprintln!();
             match action {
                 AliasAction::Install => alias::install_alias(),
                 AliasAction::Uninstall => alias::uninstall_alias(),

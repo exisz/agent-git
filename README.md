@@ -44,11 +44,11 @@ cargo install agent-git
 ## Quick Start
 
 ```bash
-# Install the alias (wraps git command)
-agent-git alias install
-source ~/.zshrc
+# Install agent-git as `git` (intercepts ALL shells, recommended)
+agent-git install
+agent-git doctor       # verify subprocess interception is ✅ ACTIVE
 
-# Now git clone is tracked automatically!
+# Now git clone is tracked automatically — even from build scripts and AI agents!
 git clone https://github.com/user/repo
 
 # Try cloning again — blocked!
@@ -62,13 +62,17 @@ git list
 git whereis user/repo
 ```
 
+> **Why `install` and not `alias`?** Shell aliases only fire in interactive shells. Build scripts, Makefiles, CI agents and AI tools call `bash -c "git ..."` which **skips aliases**. The PATH symlink installed by `agent-git install` is the only reliable interception point. The `alias` subcommand still exists but is **deprecated**.
+
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `agent-git alias install` | Install shell alias (wraps `git`) |
-| `agent-git alias uninstall` | Remove shell alias |
-| `git clone <url>` | Clone with tracking (via alias) |
+| `agent-git install` | Symlink as `git` in PATH (RECOMMENDED — intercepts every shell) |
+| `agent-git uninstall` | Remove the symlink |
+| `agent-git doctor` | Diagnose install + interception |
+| `agent-git alias install` | [DEPRECATED] Add `alias git=agent-git` to ~/.zshrc/.bashrc |
+| `git clone <url>` | Clone with tracking |
 | `git list` | List all tracked repos |
 | `git whereis <query>` | Find where a repo is cloned |
 | `git scan [dir]` | Scan directory for existing repos and track them |
@@ -103,7 +107,7 @@ git whereis user/repo
                      └───────────────┘     └──────────────┘
 ```
 
-1. **Shell alias** — `agent-git alias install` adds a function to your shell that routes `git` through `agent-git`
+1. **PATH symlink** (recommended) — `agent-git install` symlinks `<PATH-dir>/git → agent-git`. Every shell, interactive or not, that resolves `git` finds the wrapper first.
 2. **Transparent proxy** — Non-clone commands pass straight through to real `git`
 3. **Clone interception** — `git clone` checks the TOML registry first. Already cloned? Error with location. New? Clone normally and register.
 4. **TOML registry** — `~/.agent-git/repos.toml` stores all tracked repos
