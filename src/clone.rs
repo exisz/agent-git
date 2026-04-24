@@ -1,5 +1,6 @@
 /// Clone interception logic.
 /// Checks registry before cloning, registers after successful clone.
+use crate::ephemeral::{is_ephemeral, refuse_ephemeral};
 use crate::normalize::normalize_url;
 use crate::passthrough::find_real_git;
 use crate::registry::Registry;
@@ -8,7 +9,7 @@ use std::process::{Command, ExitCode};
 
 /// Handle `agent-git clone <url> [path]`.
 /// Returns the exit code to use.
-pub fn handle_clone(url: &str, dest: Option<&str>) -> ExitCode {
+pub fn handle_clone(url: &str, dest: Option<&str>, allow_tmp: bool) -> ExitCode {
     let normalized = normalize_url(url);
     let mut registry = Registry::load();
 
@@ -30,6 +31,12 @@ pub fn handle_clone(url: &str, dest: Option<&str>) -> ExitCode {
             normalized.rsplit('/').next().unwrap_or("repo").to_string()
         }
     };
+
+    // Reject ephemeral target locations (/tmp, /private/tmp, /var/tmp).
+    // Subagents auto-cd'ing to /tmp/<project> is the #1 footgun this guards.
+    if !allow_tmp && is_ephemeral(&dest_path) {
+        return refuse_ephemeral(&dest_path, "clone");
+    }
 
     // Find real git and run clone
     let real_git = match find_real_git() {

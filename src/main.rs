@@ -1,5 +1,6 @@
 mod alias;
 mod clone;
+mod ephemeral;
 mod install;
 mod normalize;
 mod passthrough;
@@ -31,6 +32,9 @@ enum Commands {
         url: String,
         /// Destination directory (optional)
         dest: Option<String>,
+        /// Allow cloning under /tmp (escape hatch; default: refuse)
+        #[arg(long)]
+        allow_tmp: bool,
     },
 
     /// List all tracked repositories
@@ -46,6 +50,9 @@ enum Commands {
     Register {
         /// Path to register (defaults to current directory)
         path: Option<String>,
+        /// Allow registering a path under /tmp (escape hatch)
+        #[arg(long)]
+        allow_tmp: bool,
     },
 
     /// Unregister a tracked repo by path
@@ -148,7 +155,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Clone { url, dest }) => clone::handle_clone(&url, dest.as_deref()),
+        Some(Commands::Clone { url, dest, allow_tmp }) => clone::handle_clone(&url, dest.as_deref(), allow_tmp),
 
         Some(Commands::List) => {
             let registry = Registry::load();
@@ -198,7 +205,7 @@ fn main() -> ExitCode {
             }
         }
 
-        Some(Commands::Register { path }) => {
+        Some(Commands::Register { path, allow_tmp }) => {
             let path = path.unwrap_or_else(|| ".".to_string());
             let abs_path = match std::path::Path::new(&path).canonicalize() {
                 Ok(p) => p.to_string_lossy().to_string(),
@@ -207,6 +214,11 @@ fn main() -> ExitCode {
                     return ExitCode::from(1);
                 }
             };
+
+            // Reject ephemeral locations (with --allow-tmp escape hatch).
+            if !allow_tmp && ephemeral::is_ephemeral(&abs_path) {
+                return ephemeral::refuse_ephemeral(&abs_path, "register");
+            }
 
             // Check if it's a git repo
             if !std::path::Path::new(&abs_path).join(".git").exists() {
