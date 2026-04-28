@@ -1,6 +1,6 @@
 /// Clone interception logic.
 /// Checks registry before cloning, registers after successful clone.
-use crate::ephemeral::{is_ephemeral, refuse_ephemeral};
+use crate::ephemeral::{is_banned, is_ephemeral, refuse_banned, refuse_ephemeral};
 use crate::normalize::normalize_url;
 use crate::passthrough::find_real_git;
 use crate::registry::Registry;
@@ -36,6 +36,11 @@ pub fn handle_clone(url: &str, dest: Option<&str>, allow_tmp: bool) -> ExitCode 
     // Subagents auto-cd'ing to /tmp/<project> is the #1 footgun this guards.
     if !allow_tmp && is_ephemeral(&dest_path) {
         return refuse_ephemeral(&dest_path, "clone");
+    }
+
+    // Reject banned target locations (agent workspaces, etc.).
+    if is_banned(&dest_path) {
+        return refuse_banned(&dest_path, "clone");
     }
 
     // Find real git and run clone

@@ -220,6 +220,11 @@ fn main() -> ExitCode {
                 return ephemeral::refuse_ephemeral(&abs_path, "register");
             }
 
+            // Reject banned locations (agent workspaces).
+            if ephemeral::is_banned(&abs_path) {
+                return ephemeral::refuse_banned(&abs_path, "register");
+            }
+
             // Check if it's a git repo
             if !std::path::Path::new(&abs_path).join(".git").exists() {
                 eprintln!("error: '{}' is not a git repository", abs_path);

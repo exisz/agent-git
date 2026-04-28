@@ -83,7 +83,7 @@ pub fn passthrough(args: &[String]) -> ExitCode {
 /// would land under an ephemeral location, refuse (unless caller passed
 /// `--allow-tmp`, which we strip before exec — the real git doesn't know it).
 fn guard_clone(args: &[String]) -> Option<ExitCode> {
-    use crate::ephemeral::{is_ephemeral, refuse_ephemeral};
+    use crate::ephemeral::{is_banned, is_ephemeral, refuse_banned, refuse_ephemeral};
     use crate::normalize::normalize_url;
     use crate::registry::Registry;
 
@@ -160,6 +160,11 @@ fn guard_clone(args: &[String]) -> Option<ExitCode> {
     // 2) Ephemeral-target guard.
     if !allow_tmp && is_ephemeral(&dest) {
         return Some(refuse_ephemeral(&dest, "clone"));
+    }
+
+    // 3) Banned-path guard (agent workspaces, etc.).
+    if is_banned(&dest) {
+        return Some(refuse_banned(&dest, "clone"));
     }
 
     None
