@@ -8,38 +8,24 @@ const EPHEMERAL_PREFIXES: &[&str] = &["/tmp/", "/private/tmp/", "/var/tmp/", "/p
 const EPHEMERAL_EXACT: &[&str] = &["/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"];
 
 /// Directories where cloning is permanently banned (agent workspaces, etc.).
-/// Loaded from ~/.config/agent-git/banned_paths (one path per line, # comments).
-/// Falls back to built-in defaults if file doesn't exist.
+/// Loaded from [config] banned_paths in ~/.agentgit registry file.
+/// Falls back to built-in defaults if not configured.
 const BANNED_PATHS_BUILTIN: &[&str] = &[
     // Agent workspaces are for config/scripts — repos go in project roots
     "/Users/c/.openclaw/workspaces/",
 ];
 
 fn load_banned_paths() -> Vec<String> {
-    let config_path = dirs::home_dir()
-        .map(|h| h.join(".config/agent-git/banned_paths"))
-        .unwrap_or_default();
-    match std::fs::read_to_string(&config_path) {
-        Ok(content) => {
-            let mut paths: Vec<String> = content
-                .lines()
-                .map(|l| l.trim())
-                .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                .map(|l| {
-                    // Ensure trailing slash for prefix matching
-                    if l.ends_with('/') { l.to_string() } else { format!("{}/", l) }
-                })
-                .collect();
-            // Always include builtins
-            for b in BANNED_PATHS_BUILTIN {
-                if !paths.iter().any(|p| p == *b) {
-                    paths.push(b.to_string());
-                }
-            }
-            paths
+    use crate::registry::Registry;
+    let registry = Registry::load();
+    let mut paths: Vec<String> = registry.banned_paths();
+    // Always include builtins
+    for b in BANNED_PATHS_BUILTIN {
+        if !paths.iter().any(|p| p == *b) {
+            paths.push(b.to_string());
         }
-        Err(_) => BANNED_PATHS_BUILTIN.iter().map(|s| s.to_string()).collect(),
     }
+    paths
 }
 
 /// Resolve a (possibly relative, possibly non-existent) path to an absolute
@@ -110,7 +96,7 @@ pub fn refuse_banned(path: &str, action: &str) -> std::process::ExitCode {
     );
     eprintln!("hint: '{}' is a banned clone target (agent workspace / config-only directory).", prefix.trim_end_matches('/'));
     eprintln!("hint: clone to the project root instead (e.g. ~/starmap/<project>, ~/dev/<project>, or /Volumes/2t/agents/<agent>/<project>).");
-    eprintln!("hint: configure banned paths in ~/.config/agent-git/banned_paths (one path per line).");
+    eprintln!("hint: configure banned paths in ~/.agentgit under [config] banned_paths = [...].");
     std::process::ExitCode::from(3)
 }
 

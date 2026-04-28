@@ -12,8 +12,16 @@ pub struct RepoEntry {
     pub cloned_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Config {
+    #[serde(default)]
+    pub banned_paths: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Registry {
+    #[serde(default)]
+    pub config: Config,
     #[serde(default)]
     pub repos: Vec<RepoEntry>,
 }
@@ -24,6 +32,13 @@ impl Registry {
         dirs::home_dir()
             .expect("Could not determine home directory")
             .join(".agentgit")
+    }
+
+    /// Get banned paths from config, ensuring trailing slashes.
+    pub fn banned_paths(&self) -> Vec<String> {
+        self.config.banned_paths.iter().map(|p| {
+            if p.ends_with('/') { p.clone() } else { format!("{}/", p) }
+        }).collect()
     }
 
     /// Load the registry from disk. Returns empty registry if file doesn't exist.
