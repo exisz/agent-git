@@ -3,7 +3,7 @@
 use crate::ephemeral::{is_banned, is_ephemeral, refuse_banned, refuse_ephemeral};
 use crate::normalize::normalize_url;
 use crate::passthrough::find_real_git;
-use crate::registry::Registry;
+use crate::registry::{AliveLookup, Registry};
 use std::path::Path;
 use std::process::{Command, ExitCode};
 
@@ -13,14 +13,26 @@ pub fn handle_clone(url: &str, dest: Option<&str>, allow_tmp: bool) -> ExitCode 
     let normalized = normalize_url(url);
     let mut registry = Registry::load();
 
-    // Check if already cloned
-    if let Some(existing) = registry.find_by_url(&normalized) {
-        eprintln!(
-            "error: Repository '{}' is already cloned at: {}",
-            normalized, existing.path
-        );
-        eprintln!("hint: Use 'agent-git whereis {}' to find it", normalized);
-        return ExitCode::from(1);
+    // Check if already cloned (auto-prune stale entries pointing at gone dirs).
+    match registry.take_alive_by_url(&normalized) {
+        AliveLookup::Alive(existing) => {
+            eprintln!(
+                "error: Repository '{}' is already cloned at: {}",
+                normalized, existing.path
+            );
+            eprintln!("hint: Use 'agent-git whereis {}' to find it", normalized);
+            return ExitCode::from(1);
+        }
+        AliveLookup::Pruned(stale) => {
+            eprintln!(
+                "agent-git: pruned stale registry entry — '{}' was registered at '{}' but the directory is gone",
+                normalized, stale.path
+            );
+            if let Err(e) = registry.save() {
+                eprintln!("warning: failed to persist pruned registry: {}", e);
+            }
+        }
+        AliveLookup::Missing => {}
     }
 
     // Determine destination path

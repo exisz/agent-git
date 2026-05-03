@@ -146,15 +146,28 @@ fn guard_clone(args: &[String]) -> Option<ExitCode> {
     };
 
     // 1) Duplicate-clone guard (registry hit) — even via raw `git clone`.
+    //    Auto-prune entries whose on-disk path is gone.
     let normalized = normalize_url(&url);
-    let registry = Registry::load();
-    if let Some(existing) = registry.find_by_url(&normalized) {
-        eprintln!(
-            "error: Repository '{}' is already cloned at: {}",
-            normalized, existing.path
-        );
-        eprintln!("hint: Use 'agent-git whereis {}' to find it", normalized);
-        return Some(ExitCode::from(1));
+    let mut registry = Registry::load();
+    match registry.take_alive_by_url(&normalized) {
+        crate::registry::AliveLookup::Alive(existing) => {
+            eprintln!(
+                "error: Repository '{}' is already cloned at: {}",
+                normalized, existing.path
+            );
+            eprintln!("hint: Use 'agent-git whereis {}' to find it", normalized);
+            return Some(ExitCode::from(1));
+        }
+        crate::registry::AliveLookup::Pruned(stale) => {
+            eprintln!(
+                "agent-git: pruned stale registry entry — '{}' was registered at '{}' but the directory is gone",
+                normalized, stale.path
+            );
+            if let Err(e) = registry.save() {
+                eprintln!("warning: failed to persist pruned registry: {}", e);
+            }
+        }
+        crate::registry::AliveLookup::Missing => {}
     }
 
     // 2) Ephemeral-target guard.

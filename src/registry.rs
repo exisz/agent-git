@@ -18,6 +18,19 @@ pub struct Config {
     pub banned_paths: Vec<String>,
 }
 
+/// Result of `Registry::take_alive_by_url`.
+#[derive(Debug, Clone)]
+pub enum AliveLookup {
+    /// No registry entry for this URL.
+    Missing,
+    /// Entry exists and the on-disk clone is alive.
+    Alive(RepoEntry),
+    /// Entry existed but the on-disk path was stale; entry has been removed
+    /// from the in-memory registry. Caller should `save()` and proceed as if
+    /// no clone existed.
+    Pruned(RepoEntry),
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Registry {
     #[serde(default)]
@@ -71,18 +84,59 @@ impl Registry {
         self.repos.iter().find(|r| r.url == normalized_url)
     }
 
+    /// Check whether a registered repo path is still a live git repo.
+    /// Returns true iff `<path>/.git` exists (covers regular repos AND worktrees,
+    /// where `.git` is a file pointing at the gitdir).
+    pub fn path_is_alive(path: &str) -> bool {
+        Path::new(path).join(".git").exists()
+    }
+
+    /// Find a repo by URL, but auto-prune the entry if its on-disk path
+    /// is no longer a git repo. Returns `Some(entry_clone)` only when the
+    /// registered clone is still alive on disk.
+    ///
+    /// On stale-entry pruning, the caller is told via `pruned`. The registry
+    /// is mutated in-memory; persist with `save()` to make it stick.
+    pub fn take_alive_by_url(&mut self, normalized_url: &str) -> AliveLookup {
+        let pos = self.repos.iter().position(|r| r.url == normalized_url);
+        match pos {
+            None => AliveLookup::Missing,
+            Some(i) => {
+                if Self::path_is_alive(&self.repos[i].path) {
+                    AliveLookup::Alive(self.repos[i].clone())
+                } else {
+                    let pruned = self.repos.remove(i);
+                    AliveLookup::Pruned(pruned)
+                }
+            }
+        }
+    }
+
     /// Find a repo by path.
     pub fn find_by_path(&self, path: &str) -> Option<&RepoEntry> {
         self.repos.iter().find(|r| r.path == path)
     }
 
-    /// Register a new repo. Returns Err if URL already exists.
+    /// Register a new repo. Returns Err if URL already exists at a still-alive path.
+    /// If the existing entry is stale (on-disk path gone), it is silently pruned
+    /// and replaced with the new one — this is the self-healing path that lets
+    /// users recover from `mv`/`rm -rf` of a registered clone without manual
+    /// `agent-git unregister`.
     pub fn register(&mut self, url: String, path: String) -> Result<(), String> {
-        if let Some(existing) = self.find_by_url(&url) {
-            return Err(format!(
-                "Repository '{}' is already cloned at: {}",
-                url, existing.path
-            ));
+        if let Some(pos) = self.repos.iter().position(|r| r.url == url) {
+            let existing_path = self.repos[pos].path.clone();
+            if Self::path_is_alive(&existing_path) {
+                return Err(format!(
+                    "Repository '{}' is already cloned at: {}",
+                    url, existing_path
+                ));
+            }
+            // Stale entry — prune it and fall through to register fresh.
+            self.repos.remove(pos);
+            eprintln!(
+                "agent-git: pruned stale registry entry — '{}' was registered at '{}' but the directory is gone",
+                url, existing_path
+            );
         }
         self.repos.push(RepoEntry {
             url,
@@ -143,11 +197,13 @@ mod tests {
 
     #[test]
     fn test_register_duplicate_url() {
+        // Use a path we know is alive (the cargo manifest dir is itself a git repo).
+        let alive_path = env!("CARGO_MANIFEST_DIR").to_string();
         let mut registry = Registry::default();
         registry
             .register(
                 "github.com/user/repo".to_string(),
-                "/Users/c/repos/repo".to_string(),
+                alive_path.clone(),
             )
             .unwrap();
 
@@ -155,8 +211,75 @@ mod tests {
             "github.com/user/repo".to_string(),
             "/Users/c/repos/repo2".to_string(),
         );
-        assert!(result.is_err());
+        assert!(result.is_err(), "duplicate against ALIVE path must error");
         assert!(result.unwrap_err().contains("already cloned"));
+    }
+
+    #[test]
+    fn test_register_self_heals_stale_entry() {
+        // A previous clone got rm -rf'd outside of agent-git’s knowledge.
+        // The next `register` (or `clone`) for the same URL should auto-prune
+        // the stale entry and accept the new path.
+        let mut registry = Registry::default();
+        registry
+            .register(
+                "github.com/user/repo".to_string(),
+                "/nonexistent/agentgit_stale_path/repo".to_string(),
+            )
+            .unwrap();
+
+        // Same URL, new (also nonexistent for the test — we only care that it’s
+        // accepted because the *previous* path is dead).
+        let result = registry.register(
+            "github.com/user/repo".to_string(),
+            "/another/path/repo".to_string(),
+        );
+        assert!(result.is_ok(), "stale entry should be pruned, got: {:?}", result);
+        assert_eq!(registry.repos.len(), 1);
+        assert_eq!(registry.repos[0].path, "/another/path/repo");
+    }
+
+    #[test]
+    fn test_take_alive_by_url_missing() {
+        let mut registry = Registry::default();
+        match registry.take_alive_by_url("github.com/user/none") {
+            AliveLookup::Missing => {}
+            other => panic!("expected Missing, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_take_alive_by_url_prunes_dead_path() {
+        let mut registry = Registry::default();
+        registry.repos.push(RepoEntry {
+            url: "github.com/user/repo".to_string(),
+            path: "/definitely/does/not/exist/repo".to_string(),
+            cloned_at: Utc::now(),
+        });
+
+        match registry.take_alive_by_url("github.com/user/repo") {
+            AliveLookup::Pruned(e) => assert_eq!(e.path, "/definitely/does/not/exist/repo"),
+            other => panic!("expected Pruned, got {:?}", other),
+        }
+        assert!(registry.repos.is_empty(), "stale entry should be removed");
+    }
+
+    #[test]
+    fn test_take_alive_by_url_keeps_live_path() {
+        // The cargo manifest dir is itself a git repo (has .git).
+        let here = env!("CARGO_MANIFEST_DIR").to_string();
+        let mut registry = Registry::default();
+        registry.repos.push(RepoEntry {
+            url: "github.com/agent-git/self".to_string(),
+            path: here.clone(),
+            cloned_at: Utc::now(),
+        });
+
+        match registry.take_alive_by_url("github.com/agent-git/self") {
+            AliveLookup::Alive(e) => assert_eq!(e.path, here),
+            other => panic!("expected Alive, got {:?}", other),
+        }
+        assert_eq!(registry.repos.len(), 1, "live entry should be kept");
     }
 
     #[test]
