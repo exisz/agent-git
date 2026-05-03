@@ -9,7 +9,7 @@ use std::process::{Command, ExitCode};
 
 /// Handle `agent-git clone <url> [path]`.
 /// Returns the exit code to use.
-pub fn handle_clone(url: &str, dest: Option<&str>, allow_tmp: bool) -> ExitCode {
+pub fn handle_clone(url: &str, dest: Option<&str>, allow_tmp: bool, extra: &[String]) -> ExitCode {
     let normalized = normalize_url(url);
     let mut registry = Registry::load();
 
@@ -66,6 +66,7 @@ pub fn handle_clone(url: &str, dest: Option<&str>, allow_tmp: bool) -> ExitCode 
 
     let status = Command::new(&real_git)
         .arg("clone")
+        .args(extra)
         .arg(url)
         .arg(&dest_path)
         .status();

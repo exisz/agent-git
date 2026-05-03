@@ -1,7 +1,7 @@
 [package]
 name = "agent-git"
 
-version = "0.5.1"
+version = "0.5.2"
 
 edition = "2021"
 description = "A git wrapper that tracks cloned repos and prevents duplicate clones"

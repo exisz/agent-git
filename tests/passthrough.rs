@@ -36,7 +36,7 @@ fn run_clone(home_dir: &Path, args: &[&str]) -> std::process::Output {
         .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
         .output()
         .expect("failed to spawn agent-git")
-    }
+}
 
 #[test]
 fn clone_no_flags_still_works() {
@@ -89,7 +89,10 @@ fn clone_passthrough_depth_branch() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(dst.join(".git").exists(), "missing .git after shallow clone");
+    assert!(
+        dst.join(".git").exists(),
+        "missing .git after shallow clone"
+    );
 
     // Verify shallow: only 1 commit reachable from HEAD.
     let log = Command::new("/usr/bin/git")
@@ -105,7 +108,13 @@ fn clone_passthrough_depth_branch() {
 
     // Verify branch.
     let head = Command::new("/usr/bin/git")
-        .args(["-C", dst.to_str().unwrap(), "rev-parse", "--abbrev-ref", "HEAD"])
+        .args([
+            "-C",
+            dst.to_str().unwrap(),
+            "rev-parse",
+            "--abbrev-ref",
+            "HEAD",
+        ])
         .output()
         .expect("git rev-parse");
     assert_eq!(

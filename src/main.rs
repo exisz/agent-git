@@ -26,15 +26,21 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Clone a repository (with duplicate detection)
+    /// Clone a repository (with duplicate detection).
+    ///
+    /// Any flags not recognized by agent-git itself (e.g. `--depth`,
+    /// `--branch`, `--single-branch`, `--filter=blob:none`) are forwarded
+    /// verbatim to the underlying `git clone` invocation. This keeps
+    /// agent-git transparent when used as a PATH-front shim for `git`.
     Clone {
-        /// Repository URL to clone
-        url: String,
-        /// Destination directory (optional)
-        dest: Option<String>,
         /// Allow cloning under /tmp (escape hatch; default: refuse)
         #[arg(long)]
         allow_tmp: bool,
+        /// Positional + extra git-clone flags. The first non-flag is treated
+        /// as the URL, the second as the optional dest. Anything else
+        /// (flags or values) is forwarded to `git clone` as-is.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 
     /// List all tracked repositories
@@ -155,7 +161,66 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Clone { url, dest, allow_tmp }) => clone::handle_clone(&url, dest.as_deref(), allow_tmp),
+        Some(Commands::Clone { allow_tmp, args }) => {
+            // Split the trailing-vararg payload into (extra_flags, url, dest).
+            // Recognize the same value-taking flags the passthrough guard does
+            // so we don't accidentally treat a flag value (e.g. the `1` in
+            // `--depth 1`) as the positional URL.
+            let mut extra: Vec<String> = Vec::new();
+            let mut positional: Vec<String> = Vec::new();
+            let mut i = 0;
+            while i < args.len() {
+                let a = &args[i];
+                if matches!(
+                    a.as_str(),
+                    "--branch"
+                        | "-b"
+                        | "--depth"
+                        | "--origin"
+                        | "-o"
+                        | "--reference"
+                        | "--reference-if-able"
+                        | "--separate-git-dir"
+                        | "--shallow-since"
+                        | "--shallow-exclude"
+                        | "--recurse-submodules"
+                        | "-j"
+                        | "--jobs"
+                        | "--filter"
+                        | "--template"
+                        | "-c"
+                        | "--config"
+                        | "--server-option"
+                        | "-u"
+                        | "--upload-pack"
+                ) {
+                    extra.push(a.clone());
+                    if i + 1 < args.len() {
+                        extra.push(args[i + 1].clone());
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                    continue;
+                }
+                if a.starts_with('-') {
+                    extra.push(a.clone());
+                    i += 1;
+                    continue;
+                }
+                positional.push(a.clone());
+                i += 1;
+            }
+
+            if positional.is_empty() {
+                eprintln!("error: 'agent-git clone' requires a repository URL");
+                eprintln!("usage: agent-git clone [git-clone-flags...] <url> [dest]");
+                return ExitCode::from(2);
+            }
+            let url = positional.remove(0);
+            let dest = positional.into_iter().next();
+            clone::handle_clone(&url, dest.as_deref(), allow_tmp, &extra)
+        }
 
         Some(Commands::List) => {
             let registry = Registry::load();
