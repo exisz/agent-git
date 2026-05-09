@@ -49,9 +49,17 @@ impl Registry {
 
     /// Get banned paths from config, ensuring trailing slashes.
     pub fn banned_paths(&self) -> Vec<String> {
-        self.config.banned_paths.iter().map(|p| {
-            if p.ends_with('/') { p.clone() } else { format!("{}/", p) }
-        }).collect()
+        self.config
+            .banned_paths
+            .iter()
+            .map(|p| {
+                if p.ends_with('/') {
+                    p.clone()
+                } else {
+                    format!("{}/", p)
+                }
+            })
+            .collect()
     }
 
     /// Load the registry from disk. Returns empty registry if file doesn't exist.
@@ -115,6 +123,27 @@ impl Registry {
     /// Find a repo by path.
     pub fn find_by_path(&self, path: &str) -> Option<&RepoEntry> {
         self.repos.iter().find(|r| r.path == path)
+    }
+
+    /// Upsert a repo entry by path. If the path is already registered under a
+    /// local key, this upgrades it to the remote URL once the repo gets origin.
+    pub fn upsert_by_path(&mut self, url: String, path: String) -> Result<(), String> {
+        if let Some(existing) = self.repos.iter_mut().find(|r| r.path == path) {
+            existing.url = url;
+            return Ok(());
+        }
+
+        self.register(url, path)
+    }
+
+    /// Move the registry path for a registered repo.
+    pub fn move_path(&mut self, old_path: &str, new_path: String) -> bool {
+        if let Some(existing) = self.repos.iter_mut().find(|r| r.path == old_path) {
+            existing.path = new_path;
+            true
+        } else {
+            false
+        }
     }
 
     /// Register a new repo. Returns Err if URL already exists at a still-alive path.
@@ -201,10 +230,7 @@ mod tests {
         let alive_path = env!("CARGO_MANIFEST_DIR").to_string();
         let mut registry = Registry::default();
         registry
-            .register(
-                "github.com/user/repo".to_string(),
-                alive_path.clone(),
-            )
+            .register("github.com/user/repo".to_string(), alive_path.clone())
             .unwrap();
 
         let result = registry.register(
@@ -234,9 +260,51 @@ mod tests {
             "github.com/user/repo".to_string(),
             "/another/path/repo".to_string(),
         );
-        assert!(result.is_ok(), "stale entry should be pruned, got: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "stale entry should be pruned, got: {:?}",
+            result
+        );
         assert_eq!(registry.repos.len(), 1);
         assert_eq!(registry.repos[0].path, "/another/path/repo");
+    }
+
+    #[test]
+    fn test_upsert_by_path_upgrades_local_entry() {
+        let mut registry = Registry::default();
+        registry
+            .register(
+                "local:/Users/c/repos/repo".to_string(),
+                "/Users/c/repos/repo".to_string(),
+            )
+            .unwrap();
+
+        registry
+            .upsert_by_path(
+                "github.com/user/repo".to_string(),
+                "/Users/c/repos/repo".to_string(),
+            )
+            .unwrap();
+
+        assert_eq!(registry.repos.len(), 1);
+        assert_eq!(registry.repos[0].url, "github.com/user/repo");
+    }
+
+    #[test]
+    fn test_move_path_updates_registered_path() {
+        let mut registry = Registry::default();
+        registry
+            .register(
+                "github.com/user/repo".to_string(),
+                "/Users/c/repos/repo".to_string(),
+            )
+            .unwrap();
+
+        assert!(registry.move_path(
+            "/Users/c/repos/repo",
+            "/Volumes/2t/agents/station/repo".to_string()
+        ));
+        assert_eq!(registry.repos[0].path, "/Volumes/2t/agents/station/repo");
     }
 
     #[test]

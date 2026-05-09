@@ -2,6 +2,7 @@ mod alias;
 mod clone;
 mod ephemeral;
 mod install;
+mod move_repo;
 mod normalize;
 mod passthrough;
 mod registry;
@@ -65,6 +66,17 @@ enum Commands {
     Unregister {
         /// Path to unregister
         path: String,
+    },
+
+    /// Move a git repo and update the local registry
+    Move {
+        /// Existing repo path
+        path: String,
+        /// New path
+        dest: String,
+        /// Allow moving under /tmp (escape hatch)
+        #[arg(long)]
+        allow_tmp: bool,
     },
 
     /// Scan a directory for git repos and register them
@@ -141,6 +153,7 @@ fn main() -> ExitCode {
         "whereis",
         "register",
         "unregister",
+        "move",
         "scan",
         "install",
         "uninstall",
@@ -353,6 +366,12 @@ fn main() -> ExitCode {
                 }
             }
         }
+
+        Some(Commands::Move {
+            path,
+            dest,
+            allow_tmp,
+        }) => move_repo::handle_move(&path, &dest, allow_tmp),
 
         Some(Commands::Scan { dir }) => {
             let dir = dir.unwrap_or_else(|| ".".to_string());

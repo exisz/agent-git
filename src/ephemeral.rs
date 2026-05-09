@@ -84,17 +84,19 @@ pub fn matched_banned_prefix(path: &str) -> Option<String> {
     let resolved = resolve_for_check(path);
     let s = resolved.to_string_lossy().to_string();
     let banned = load_banned_paths();
-    banned.into_iter().find(|prefix| s.starts_with(prefix.as_str()))
+    banned
+        .into_iter()
+        .find(|prefix| s.starts_with(prefix.as_str()))
 }
 
 /// Print a uniform refusal message for banned paths and return a non-zero ExitCode.
 pub fn refuse_banned(path: &str, action: &str) -> std::process::ExitCode {
-    let prefix = matched_banned_prefix(path)
-        .unwrap_or_else(|| "<banned>".to_string());
+    let prefix = matched_banned_prefix(path).unwrap_or_else(|| "<banned>".to_string());
+    eprintln!("error: refusing to {action} a git repo under a banned location: {path}");
     eprintln!(
-        "error: refusing to {action} a git repo under a banned location: {path}"
+        "hint: '{}' is a banned clone target (agent workspace / config-only directory).",
+        prefix.trim_end_matches('/')
     );
-    eprintln!("hint: '{}' is a banned clone target (agent workspace / config-only directory).", prefix.trim_end_matches('/'));
     eprintln!("hint: clone to the project root instead (e.g. ~/starmap/<project>, ~/dev/<project>, or /Volumes/2t/agents/<agent>/<project>).");
     eprintln!("hint: configure banned paths in ~/.agentgit under [config] banned_paths = [...].");
     std::process::ExitCode::from(3)
@@ -102,9 +104,7 @@ pub fn refuse_banned(path: &str, action: &str) -> std::process::ExitCode {
 
 /// Print a uniform refusal message and return a non-zero ExitCode.
 pub fn refuse_ephemeral(path: &str, action: &str) -> std::process::ExitCode {
-    eprintln!(
-        "error: refusing to {action} a git repo under an ephemeral location: {path}"
-    );
+    eprintln!("error: refusing to {action} a git repo under an ephemeral location: {path}");
     eprintln!("hint: /tmp, /private/tmp, /var/tmp are auto-purged by the OS — git pack files corrupt and subagents bypass canonical clones.");
     eprintln!("hint: use the agent's project root instead (e.g. ~/dev/<project> on this host, or /Volumes/2t/agents/<agent>/<project> for shared agents).");
     eprintln!("hint: pass --allow-tmp if you really mean it (e.g. throwaway diagnostic clone).");

@@ -71,11 +71,130 @@ pub fn passthrough(args: &[String]) -> ExitCode {
     let status = Command::new(&real_git).args(args).status();
 
     match status {
-        Ok(s) => ExitCode::from(s.code().unwrap_or(1) as u8),
+        Ok(s) => {
+            if s.success() {
+                maybe_register_current_repo(&real_git, args);
+            }
+            ExitCode::from(s.code().unwrap_or(1) as u8)
+        }
         Err(e) => {
             eprintln!("error: Failed to run git: {}", e);
             ExitCode::from(1)
         }
+    }
+}
+
+fn maybe_register_current_repo(real_git: &str, args: &[String]) {
+    if !should_register_after(args) {
+        return;
+    }
+
+    let root = match git_output(
+        real_git,
+        &git_context_args(args),
+        &["rev-parse", "--show-toplevel"],
+    ) {
+        Some(root) => root,
+        None => return,
+    };
+    let remote = match git_output(
+        real_git,
+        &git_context_args(args),
+        &["remote", "get-url", "origin"],
+    ) {
+        Some(remote) => remote,
+        None => return,
+    };
+
+    let path = match std::path::Path::new(&root).canonicalize() {
+        Ok(p) => p.to_string_lossy().to_string(),
+        Err(_) => root,
+    };
+    let url = crate::normalize::normalize_url(&remote);
+
+    let mut registry = crate::registry::Registry::load();
+    match registry.upsert_by_path(url.clone(), path.clone()) {
+        Ok(()) => {
+            if let Err(e) = registry.save() {
+                eprintln!(
+                    "warning: git succeeded but agent-git failed to save registry: {}",
+                    e
+                );
+            } else {
+                eprintln!("agent-git: Registered in ~/.agentgit: {} → {}", url, path);
+            }
+        }
+        Err(e) => eprintln!(
+            "warning: git succeeded but agent-git failed to register repo: {}",
+            e
+        ),
+    }
+}
+
+fn should_register_after(args: &[String]) -> bool {
+    let Some((sub_idx, sub)) = find_subcommand(args) else {
+        return false;
+    };
+
+    if sub == "push" {
+        return true;
+    }
+
+    if sub == "remote" {
+        let action = args.get(sub_idx + 1).map(String::as_str);
+        return matches!(
+            action,
+            Some("add") | Some("set-url") | Some("rename") | Some("remove")
+        );
+    }
+
+    false
+}
+
+fn git_context_args(args: &[String]) -> Vec<String> {
+    let Some((sub_idx, _)) = find_subcommand(args) else {
+        return Vec::new();
+    };
+    args[..sub_idx].to_vec()
+}
+
+fn find_subcommand(args: &[String]) -> Option<(usize, &str)> {
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if a == "-c" || a == "--exec-path" || a == "--git-dir" || a == "--work-tree" || a == "-C" {
+            i += 2;
+            continue;
+        }
+        if a.starts_with("--git-dir=") || a.starts_with("--work-tree=") || a.starts_with("-C=") {
+            i += 1;
+            continue;
+        }
+        if a.starts_with('-') {
+            i += 1;
+            continue;
+        }
+        return Some((i, a.as_str()));
+    }
+    None
+}
+
+fn git_output(real_git: &str, context: &[String], command: &[&str]) -> Option<String> {
+    let output = Command::new(real_git)
+        .args(context)
+        .args(command)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
     }
 }
 
@@ -122,7 +241,29 @@ fn guard_clone(args: &[String]) -> Option<ExitCode> {
     while j < args.len() {
         let a = &args[j];
         // Flags that take a value
-        if matches!(a.as_str(), "--branch" | "-b" | "--depth" | "--origin" | "-o" | "--reference" | "--reference-if-able" | "--separate-git-dir" | "--shallow-since" | "--shallow-exclude" | "--recurse-submodules" | "-j" | "--jobs" | "--filter" | "--template" | "-c" | "--config" | "--server-option" | "-u" | "--upload-pack") {
+        if matches!(
+            a.as_str(),
+            "--branch"
+                | "-b"
+                | "--depth"
+                | "--origin"
+                | "-o"
+                | "--reference"
+                | "--reference-if-able"
+                | "--separate-git-dir"
+                | "--shallow-since"
+                | "--shallow-exclude"
+                | "--recurse-submodules"
+                | "-j"
+                | "--jobs"
+                | "--filter"
+                | "--template"
+                | "-c"
+                | "--config"
+                | "--server-option"
+                | "-u"
+                | "--upload-pack"
+        ) {
             j += 2;
             continue;
         }
