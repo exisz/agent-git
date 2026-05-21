@@ -56,9 +56,17 @@ pub fn handle_move(path: &str, dest: &str, allow_tmp: bool) -> ExitCode {
         return ExitCode::from(1);
     }
 
+    // After the move, canonicalize the destination before writing the registry.
+    // The requested destination may contain a symlinked parent such as ~/2t.
+    let registered_new_path_s = new_path
+        .canonicalize()
+        .unwrap_or_else(|_| new_path.clone())
+        .to_string_lossy()
+        .to_string();
+
     let mut registry = Registry::load();
-    if !registry.move_path(&old_path_s, new_path_s.clone()) {
-        if let Err(e) = registry.upsert_by_path(url.clone(), new_path_s.clone()) {
+    if !registry.move_path(&old_path_s, registered_new_path_s.clone()) {
+        if let Err(e) = registry.upsert_by_path(url.clone(), registered_new_path_s.clone()) {
             eprintln!("warning: moved repo but failed to register it: {}", e);
             return ExitCode::from(1);
         }
@@ -70,7 +78,7 @@ pub fn handle_move(path: &str, dest: &str, allow_tmp: bool) -> ExitCode {
     }
 
     println!("Moved: {} → {}", old_path_s, new_path_s);
-    println!("Registered: {} → {}", url, new_path_s);
+    println!("Registered: {} → {}", url, registered_new_path_s);
     ExitCode::SUCCESS
 }
 
@@ -124,5 +132,16 @@ fn infer_repo_url(path: &Path) -> Option<String> {
         None
     } else {
         Some(normalize_url(&url))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_destination;
+
+    #[test]
+    fn resolve_destination_keeps_absolute_spelling_until_after_move() {
+        let p = resolve_destination("/tmp/agent-git-move-test");
+        assert_eq!(p.to_string_lossy(), "/tmp/agent-git-move-test");
     }
 }

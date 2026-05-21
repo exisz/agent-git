@@ -4,7 +4,7 @@ use crate::ephemeral::{is_banned, is_ephemeral, refuse_banned, refuse_ephemeral}
 use crate::normalize::normalize_url;
 use crate::passthrough::find_real_git;
 use crate::registry::{AliveLookup, Registry};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 /// Handle `agent-git clone <url> [path]`.
@@ -73,14 +73,10 @@ pub fn handle_clone(url: &str, dest: Option<&str>, allow_tmp: bool, extra: &[Str
 
     match status {
         Ok(s) if s.success() => {
-            // Resolve to absolute path
-            let abs_path = if Path::new(&dest_path).is_absolute() {
-                dest_path.clone()
-            } else {
-                std::env::current_dir()
-                    .map(|cwd| cwd.join(&dest_path).to_string_lossy().to_string())
-                    .unwrap_or(dest_path.clone())
-            };
+            // Register the clone by canonical path, not the symlink spelling the
+            // caller used. This keeps the registry honest for disk-location
+            // audits: a clone through ~/2t/foo must be recorded as /Volumes/2t/foo.
+            let abs_path = canonical_clone_path(&dest_path);
 
             // Register the clone
             if let Err(e) = registry.register(normalized, abs_path) {
@@ -100,5 +96,50 @@ pub fn handle_clone(url: &str, dest: Option<&str>, allow_tmp: bool, extra: &[Str
             eprintln!("error: Failed to run git clone: {}", e);
             ExitCode::from(1)
         }
+    }
+}
+
+fn absolute_path(path: &str) -> PathBuf {
+    let p = Path::new(path);
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(p))
+            .unwrap_or_else(|_| p.to_path_buf())
+    }
+}
+
+fn canonical_clone_path(path: &str) -> String {
+    let abs = absolute_path(path);
+    abs.canonicalize()
+        .unwrap_or(abs)
+        .to_string_lossy()
+        .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{absolute_path, canonical_clone_path};
+    use std::fs;
+
+    #[test]
+    fn canonical_clone_path_resolves_symlink_destination() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = tmp.path().join("real-repo");
+        let link = tmp.path().join("link-repo");
+        fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        assert_eq!(
+            canonical_clone_path(link.to_str().unwrap()),
+            real.to_string_lossy()
+        );
+    }
+
+    #[test]
+    fn absolute_path_keeps_absolute_paths_absolute() {
+        let p = absolute_path("/tmp/agent-git-test");
+        assert_eq!(p.to_string_lossy(), "/tmp/agent-git-test");
     }
 }
